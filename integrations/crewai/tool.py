@@ -221,34 +221,41 @@ class MemMachineTools:
                 filter_dict=filter_dict,
             )
 
-            # Format results for easier consumption
-            # SearchResult is a Pydantic model with 'content' attribute
-            # v2 API returns "semantic_memory" instead of "profile_memory"
+            # Format results for easier consumption.
+            # search_result is SearchResult; .content is SearchResultContent (Pydantic model).
             formatted_results = {
                 "query": query,
                 "episodic_memory": [],
                 "profile_memory": [],
             }
 
-            # Access the content dictionary from SearchResult
-            results = search_result.content if hasattr(search_result, "content") else {}
+            content = search_result.content if hasattr(search_result, "content") else None
+            if content is not None:
+                # Episodic: SearchResultContent.episodic_memory is EpisodicSearchResult
+                # with long_term_memory.episodes and short_term_memory.episodes
+                if getattr(content, "episodic_memory", None) is not None:
+                    episodic = content.episodic_memory
+                    episodes = []
+                    if getattr(episodic, "long_term_memory", None) is not None:
+                        episodes.extend(
+                            getattr(episodic.long_term_memory, "episodes", []) or []
+                        )
+                    if getattr(episodic, "short_term_memory", None) is not None:
+                        episodes.extend(
+                            getattr(episodic.short_term_memory, "episodes", []) or []
+                        )
+                    formatted_results["episodic_memory"] = [
+                        ep.model_dump() if hasattr(ep, "model_dump") else ep
+                        for ep in episodes
+                    ]
 
-            if results:
-                # Extract episodic memories
-                if results.get("episodic_memory"):
-                    episodic = results["episodic_memory"]
-                    if isinstance(episodic, list) and episodic:
-                        if isinstance(episodic[0], list):
-                            formatted_results["episodic_memory"] = episodic[0]
-                        else:
-                            formatted_results["episodic_memory"] = episodic
-
-                # Extract profile/semantic memories (v2 API uses "semantic_memory")
-                if "profile_memory" in results:
-                    formatted_results["profile_memory"] = results["profile_memory"]
-                elif "semantic_memory" in results:
-                    # Map semantic_memory to profile_memory for backward compatibility
-                    formatted_results["profile_memory"] = results["semantic_memory"]
+                # Semantic (v2) / profile: map to profile_memory for backward compatibility
+                semantic = getattr(content, "semantic_memory", None)
+                if semantic:
+                    formatted_results["profile_memory"] = [
+                        s.model_dump() if hasattr(s, "model_dump") else s
+                        for s in semantic
+                    ]
 
             return {
                 "status": "success",
