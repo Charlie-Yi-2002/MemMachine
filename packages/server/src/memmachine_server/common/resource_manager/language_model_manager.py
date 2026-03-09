@@ -9,6 +9,7 @@ from pydantic import SecretStr
 from memmachine_server.common.configuration.language_model_conf import (
     AmazonBedrockLanguageModelConf,
     LanguageModelsConf,
+    OllamaApiGenerateLanguageModelConf,
     OpenAIChatCompletionsLanguageModelConf,
     OpenAIResponsesLanguageModelConf,
 )
@@ -39,6 +40,7 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
             name in self.conf.openai_responses_language_model_confs
             or name in self.conf.openai_chat_completions_language_model_confs
             or name in self.conf.amazon_bedrock_language_model_confs
+            or name in self.conf.ollama_api_generate_language_model_confs
         )
 
     def _get_not_found_error(self, name: str) -> Exception:
@@ -51,6 +53,7 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
         names.update(self.conf.openai_responses_language_model_confs)
         names.update(self.conf.openai_chat_completions_language_model_confs)
         names.update(self.conf.amazon_bedrock_language_model_confs)
+        names.update(self.conf.ollama_api_generate_language_model_confs)
         return names
 
     async def build_all(self) -> dict[str, LanguageModel]:
@@ -84,6 +87,9 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
         if name in self.conf.amazon_bedrock_language_model_confs:
             del self.conf.amazon_bedrock_language_model_confs[name]
             removed = True
+        if name in self.conf.ollama_api_generate_language_model_confs:
+            del self.conf.ollama_api_generate_language_model_confs[name]
+            removed = True
         return removed
 
     def add_language_model_config(
@@ -92,7 +98,8 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
         provider: str,
         config: OpenAIResponsesLanguageModelConf
         | OpenAIChatCompletionsLanguageModelConf
-        | AmazonBedrockLanguageModelConf,
+        | AmazonBedrockLanguageModelConf
+        | OllamaApiGenerateLanguageModelConf,
     ) -> None:
         """
         Add a new language model configuration at runtime.
@@ -136,6 +143,16 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
                     "Expected AmazonBedrockLanguageModelConf for provider 'amazon-bedrock'"
                 )
             self.conf.amazon_bedrock_language_model_confs[name] = config
+        elif provider == "ollama-api-generate":
+            from memmachine_server.common.configuration.language_model_conf import (
+                OllamaApiGenerateLanguageModelConf,
+            )
+
+            if not isinstance(config, OllamaApiGenerateLanguageModelConf):
+                raise ValueError(
+                    "Expected OllamaApiGenerateLanguageModelConf for provider 'ollama-api-generate'"
+                )
+            self.conf.ollama_api_generate_language_model_confs[name] = config
         else:
             raise ValueError(f"Unknown language model provider: {provider}")
 
@@ -167,6 +184,8 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
             ret = self._build_openai_chat_completions_language_model(name)
         if name in self.conf.amazon_bedrock_language_model_confs:
             ret = self._build_amazon_bedrock_language_model(name)
+        if name in self.conf.ollama_api_generate_language_model_confs:
+            ret = self._build_ollama_api_generate_language_model(name)
         if ret is None:
             raise InvalidLanguageModelError(
                 f"Language model with name {name} not found."
@@ -214,6 +233,26 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
                     base_url=conf.base_url,
                 ),
                 model=conf.model,
+                max_retry_interval_seconds=conf.max_retry_interval_seconds,
+                metrics_factory=conf.get_metrics_factory(),
+            ),
+        )
+
+    def _build_ollama_api_generate_language_model(self, name: str) -> LanguageModel:
+        import httpx
+
+        from memmachine_server.common.language_model.ollama_api_generate_language_model import (
+            OllamaApiGenerateLanguageModel,
+            OllamaApiGenerateLanguageModelParams,
+        )
+
+        conf = self.conf.ollama_api_generate_language_model_confs[name]
+
+        return OllamaApiGenerateLanguageModel(
+            OllamaApiGenerateLanguageModelParams(
+                client=httpx.AsyncClient(base_url=conf.base_url),
+                model=conf.model,
+                think=conf.think,
                 max_retry_interval_seconds=conf.max_retry_interval_seconds,
                 metrics_factory=conf.get_metrics_factory(),
             ),

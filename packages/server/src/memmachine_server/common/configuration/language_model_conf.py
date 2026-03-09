@@ -17,6 +17,7 @@ from memmachine_server.common.language_model.amazon_bedrock_language_model impor
 )
 
 DEFAULT_OLLAMA_BASE_URL = "http://host.docker.internal:11434/v1"
+DEFAULT_OLLAMA_GENERATE_BASE_URL = "http://host.docker.internal:11434"
 
 
 def _clean_empty_lm_config(conf: dict) -> dict:
@@ -98,6 +99,50 @@ class OpenAIChatCompletionsLanguageModelConf(
         return v
 
 
+class OllamaApiGenerateLanguageModelConf(MetricsFactoryIdMixin, YamlSerializableMixin):
+    """Configuration for Ollama /api/generate models.
+
+    Uses Ollama's native generation endpoint for lower latency than the
+    OpenAI-compatible /v1/chat/completions endpoint.
+
+    Attributes:
+        model (str): Ollama model name (e.g. 'qwen3.5:9b').
+        base_url (str): Ollama base URL without /v1 suffix.
+        think (bool): Whether to enable Qwen think/reasoning mode.
+        max_retry_interval_seconds (int): Max retry interval in seconds.
+    """
+
+    model: str = Field(
+        ...,
+        min_length=1,
+        description="Ollama model name (e.g. 'qwen3.5:9b')",
+    )
+    base_url: str = Field(
+        default=DEFAULT_OLLAMA_GENERATE_BASE_URL,
+        description="Ollama base URL (no /v1 suffix)",
+        examples=[DEFAULT_OLLAMA_GENERATE_BASE_URL],
+    )
+    think: bool = Field(
+        False,
+        description="Whether to enable Qwen think/reasoning mode",
+    )
+    max_retry_interval_seconds: int = Field(
+        default=120,
+        description="Maximal retry interval in seconds when retrying requests",
+        gt=0,
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, v: str) -> str:
+        """Ensure the base URL includes a scheme and host."""
+        if v is not None:
+            parsed_url = urlparse(v)
+            if not parsed_url.scheme or not parsed_url.netloc:
+                raise ValueError(f"Invalid base URL: base_url={v}")
+        return v
+
+
 class AmazonBedrockLanguageModelConf(
     MetricsFactoryIdMixin, YamlSerializableMixin, AWSCredentialsMixin
 ):
@@ -155,6 +200,10 @@ class LanguageModelsConf(BaseModel):
         OpenAIChatCompletionsLanguageModelConf,
     ] = {}
     amazon_bedrock_language_model_confs: dict[str, AmazonBedrockLanguageModelConf] = {}
+    ollama_api_generate_language_model_confs: dict[
+        str,
+        OllamaApiGenerateLanguageModelConf,
+    ] = {}
 
     def get_openai_responses_language_model_name(self) -> str | None:
         """Get the name of the first OpenAI Responses language model, if any."""
@@ -172,6 +221,12 @@ class LanguageModelsConf(BaseModel):
         """Get the name of the first Amazon Bedrock language model, if any."""
         if self.amazon_bedrock_language_model_confs:
             return next(iter(self.amazon_bedrock_language_model_confs))
+        return None
+
+    def get_ollama_api_generate_language_model_name(self) -> str | None:
+        """Get the name of the first Ollama /api/generate language model, if any."""
+        if self.ollama_api_generate_language_model_confs:
+            return next(iter(self.ollama_api_generate_language_model_confs))
         return None
 
     def get_openai_responses_language_model_conf(
@@ -192,17 +247,25 @@ class LanguageModelsConf(BaseModel):
         """Get Amazon Bedrock language model configuration by name."""
         return self.amazon_bedrock_language_model_confs[name]
 
+    def get_ollama_api_generate_language_model_conf(
+        self, name: str
+    ) -> OllamaApiGenerateLanguageModelConf:
+        """Get Ollama /api/generate language model configuration by name."""
+        return self.ollama_api_generate_language_model_confs[name]
+
     def contains_language_model(self, language_model_id: str) -> bool:
         """Return whether the language model id is known."""
         return (
             language_model_id in self.openai_responses_language_model_confs
             or language_model_id in self.openai_chat_completions_language_model_confs
             or language_model_id in self.amazon_bedrock_language_model_confs
+            or language_model_id in self.ollama_api_generate_language_model_confs
         )
 
     OPENAI_RESPONSE: ClassVar[str] = "openai-responses"
     OPEN_CHAT_COMPLETION: ClassVar[str] = "openai-chat-completions"
     AMAZON_BEDROCK: ClassVar[str] = "amazon-bedrock"
+    OLLAMA_API_GENERATE: ClassVar[str] = "ollama-api-generate"
     PROVIDER_KEY: ClassVar[str] = "provider"
     CONFIG_KEY: ClassVar[str] = "config"
 
@@ -225,6 +288,9 @@ class LanguageModelsConf(BaseModel):
         for lm_id, cfg in self.amazon_bedrock_language_model_confs.items():
             add_language_model(lm_id, self.AMAZON_BEDROCK, cfg.to_yaml_dict())
 
+        for lm_id, cfg in self.ollama_api_generate_language_model_confs.items():
+            add_language_model(lm_id, self.OLLAMA_API_GENERATE, cfg.to_yaml_dict())
+
         return language_models
 
     def to_yaml(self) -> str:
@@ -242,7 +308,12 @@ class LanguageModelsConf(BaseModel):
         if isinstance(lm, cls):
             return lm
 
-        openai_dict, aws_bedrock_dict, openai_chat_completions_dict = {}, {}, {}
+        openai_dict, aws_bedrock_dict, openai_chat_completions_dict, ollama_generate_dict = (
+            {},
+            {},
+            {},
+            {},
+        )
 
         for lm_id, resource_definition in lm.items():
             provider = resource_definition.get("provider")
@@ -251,12 +322,12 @@ class LanguageModelsConf(BaseModel):
                 openai_dict[lm_id] = OpenAIResponsesLanguageModelConf(**conf)
             elif provider == "openai-chat-completions":
                 openai_chat_completions_dict[lm_id] = (
-                    OpenAIChatCompletionsLanguageModelConf(
-                        **conf,
-                    )
+                    OpenAIChatCompletionsLanguageModelConf(**conf)
                 )
             elif provider == "amazon-bedrock":
                 aws_bedrock_dict[lm_id] = AmazonBedrockLanguageModelConf(**conf)
+            elif provider == "ollama-api-generate":
+                ollama_generate_dict[lm_id] = OllamaApiGenerateLanguageModelConf(**conf)
             else:
                 raise ValueError(
                     f"Unknown language model provider '{provider}' for language model id '{lm_id}'",
@@ -266,4 +337,5 @@ class LanguageModelsConf(BaseModel):
             openai_responses_language_model_confs=openai_dict,
             amazon_bedrock_language_model_confs=aws_bedrock_dict,
             openai_chat_completions_language_model_confs=openai_chat_completions_dict,
+            ollama_api_generate_language_model_confs=ollama_generate_dict,
         )
