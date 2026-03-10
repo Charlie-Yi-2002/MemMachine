@@ -70,6 +70,9 @@ async def llm_feature_update(
         output_format=_SemanticFeatureUpdateRes,
     )
 
+    # log the semantic memory update command
+    logger.debug("semantic_llm.llm_feature_update parsed_output=%r", parsed_output)
+
     if parsed_output is None:
         return []
 
