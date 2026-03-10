@@ -35,17 +35,19 @@ def build_update_prompt(*, tags: dict[str, str], description: str = "") -> str:
                     "command": "add" | "delete",
                     "tag": "<string>",
                     "feature": "<string>",
-                    "value": "<string or boolean or number>"
+                    "value": "<string>"
                 },
                 ...
             ]
         }
 
-        STRICT RULES for the "command" field:
-        - The ONLY valid values are the exact lowercase strings "add" and "delete". No other values are permitted.
+        STRICT RULES for all fields:
+        - The ONLY valid values for "command" are the exact lowercase strings "add" and "delete". No other values are permitted.
         - Do NOT use synonyms or variations such as "extract", "insert", "update", "modify", "set", "remove", "create", "append", "replace", or any other word.
         - The "command" value must be lowercase, with no leading or trailing whitespace.
+        - The "value" field is REQUIRED for ALL commands, including "delete". It must always be a plain string. Never use booleans (true/false) or numbers.
         - All string values in the JSON must have no leading or trailing whitespace.
+        - There is NO "update" command. To update a feature, use a "delete" followed by an "add".
 
         The following output will add a feature:
         {
@@ -54,34 +56,35 @@ def build_update_prompt(*, tags: dict[str, str], description: str = "") -> str:
                     "command": "add",
                     "tag": "Preferred Content Format",
                     "feature": "unicode_for_math",
-                    "value": true
+                    "value": "true"
                 }
             ]
         }
-        The following will delete all values associated with the feature:
+        The following will delete a feature (note: "value" is required and must be the value being deleted):
         {
             "commands": [
                 {
                     "command": "delete",
-                    "tag" : "Language Preferences",
-                    "feature": "format"
+                    "tag": "Language Preferences",
+                    "feature": "format",
+                    "value": "markdown"
                 }
             ]
         }
-        The following will update a feature:
+        The following will update a feature (delete the old value, then add the new value):
         {
             "commands": [
                 {
                     "command": "delete",
                     "tag": "Platform Behavior",
                     "feature": "prefers_detailed_responses",
-                    "value": true
+                    "value": "true"
                 },
                 {
                     "command": "add",
-                    "tag" : "Platform Behavior",
+                    "tag": "Platform Behavior",
                     "feature": "prefers_detailed_response",
-                    "value": false
+                    "value": "false"
                 }
             ]
         }
@@ -182,6 +185,7 @@ def build_update_prompt(*, tags: dict[str, str], description: str = "") -> str:
         - Output ONLY the raw JSON object. Do NOT wrap it in markdown code fences (e.g. ```json or ```). Do NOT include any text, explanation, or commentary before or after the JSON.
         - REMEMBER: Always use the command format with "command", "tag", "feature", and "value" keys, inside a top-level JSON object with a single key "commands". Never use any other top-level format.
         - REMEMBER: The "command" field must be EXACTLY "add" or "delete" (lowercase, no whitespace). Any other value such as "extract", "update", "insert", etc. is invalid and will cause an error.
+        - REMEMBER: The "value" field is ALWAYS required, even for "delete" commands. It must be a plain string — never a boolean or number.
     """
     )
 
