@@ -102,7 +102,11 @@ class OllamaApiGenerateLanguageModel(LanguageModel):
             parts.append(user_prompt)
         return "".join(parts)
 
-    async def _call_generate(self, prompt: str) -> str:
+    async def _call_generate(
+        self,
+        prompt: str,
+        format: dict[str, Any] | None = None,
+    ) -> str:
         """Call Ollama /api/generate and return the response text."""
         payload: dict[str, Any] = {
             "model": self._model,
@@ -110,6 +114,8 @@ class OllamaApiGenerateLanguageModel(LanguageModel):
             "stream": False,
             "think": self._think,
         }
+        if format is not None:
+            payload["format"] = format
         response = await self._client.post("/api/generate", json=payload)
         response.raise_for_status()
         data = response.json()
@@ -153,16 +159,23 @@ class OllamaApiGenerateLanguageModel(LanguageModel):
         user_prompt: str | None = None,
         max_attempts: int = 1,
     ) -> T | None:
-        """Generate a structured response parsed into the given model."""
+        """Generate a structured response parsed into the given model.
+
+        Passes the Pydantic model's JSON schema to Ollama as the `format`
+        field, which constrains the sampler to only produce tokens that match
+        the schema, eliminating malformed output.
+        """
         async with self._tracker("generate_parsed_response"):
             if max_attempts <= 0:
                 raise ValueError("max_attempts must be a positive integer")
 
+            json_schema = TypeAdapter(output_format).json_schema()
             prompt = self._build_prompt(system_prompt, user_prompt)
             text, _, _, _ = await self._generate_response(
                 system_prompt=None,
                 user_prompt=prompt,
                 max_attempts=max_attempts,
+                format=json_schema,
             )
             return TypeAdapter(output_format).validate_python(
                 json_repair.loads(text)
@@ -173,6 +186,7 @@ class OllamaApiGenerateLanguageModel(LanguageModel):
         system_prompt: str | None,
         user_prompt: str | None,
         max_attempts: int = 1,
+        format: dict[str, Any] | None = None,
     ) -> tuple[str, list[dict[str, Any]], int, int]:
         """Call /api/generate with retry logic."""
         async with self._tracker("generate_response"):
@@ -185,7 +199,7 @@ class OllamaApiGenerateLanguageModel(LanguageModel):
 
             for attempt in range(1, max_attempts + 1):
                 try:
-                    text = await self._call_generate(prompt)
+                    text = await self._call_generate(prompt, format=format)
                 except (
                     httpx.ConnectError,
                     httpx.TimeoutException,
