@@ -41,6 +41,12 @@ def build_update_prompt(*, tags: dict[str, str], description: str = "") -> str:
             ]
         }
 
+        STRICT RULES for the "command" field:
+        - The ONLY valid values are the exact lowercase strings "add" and "delete". No other values are permitted.
+        - Do NOT use synonyms or variations such as "extract", "insert", "update", "modify", "set", "remove", "create", "append", "replace", or any other word.
+        - The "command" value must be lowercase, with no leading or trailing whitespace.
+        - All string values in the JSON must have no leading or trailing whitespace.
+
         The following output will add a feature:
         {
             "commands": [
@@ -173,7 +179,9 @@ def build_update_prompt(*, tags: dict[str, str], description: str = "") -> str:
         - If the query contains absolutely no personal information about the user (e.g., asking about the weather, requesting code without personal context, etc.), you MUST respond with the JSON object { "commands": [] } and nothing else. Names, basic demographics, preferences, and any personal details should ALWAYS be extracted when present.
         - Listen to any additional instructions specific to the execution context provided underneath 'EXTRA EXTERNAL INSTRUCTIONS'
         - First, think about what should go in the profile inside <think> </think> tags. Then output only a valid JSON.
+        - Output ONLY the raw JSON object. Do NOT wrap it in markdown code fences (e.g. ```json or ```). Do NOT include any text, explanation, or commentary before or after the JSON.
         - REMEMBER: Always use the command format with "command", "tag", "feature", and "value" keys, inside a top-level JSON object with a single key "commands". Never use any other top-level format.
+        - REMEMBER: The "command" field must be EXACTLY "add" or "delete" (lowercase, no whitespace). Any other value such as "extract", "update", "insert", etc. is invalid and will cause an error.
     """
     )
 
