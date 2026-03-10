@@ -250,7 +250,10 @@ class LanguageModelManager(BaseResourceManager[LanguageModel]):
 
         return OllamaApiGenerateLanguageModel(
             OllamaApiGenerateLanguageModelParams(
-                client=httpx.AsyncClient(base_url=conf.base_url),
+                client=httpx.AsyncClient(
+                    base_url=conf.base_url,
+                    timeout=httpx.Timeout(conf.max_retry_interval_seconds),
+                ),
                 model=conf.model,
                 think=conf.think,
                 max_retry_interval_seconds=conf.max_retry_interval_seconds,
